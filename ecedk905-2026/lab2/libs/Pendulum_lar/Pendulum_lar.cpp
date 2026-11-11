@@ -203,9 +203,7 @@ bool Pendulum_lar::update(void)
     //     Direction::CCW (opposite, sign -1). Multiply by that sign, so that a positive torque increases theta.
     //   - Do the subtraction in double (the position grows with every turn, and float has only ~7 digits),
     //     then convert the result to float: theta = (float)(...).
-    double theta= get_position() - _zero
-    float theta
-    theta = 0.0f; // <- replace
+    theta = (float)(get_position() - _zero);  // <- replace Censor Direction = CW so +1 sign
 
     // TODO (Lab 2, Part 1): the angular velocity omega (rad/s), from the angle (the sensor gives no velocity
     // synchronous with the control period):
@@ -214,7 +212,9 @@ bool Pendulum_lar::update(void)
     //   2. a first-order low-pass filter: omega = _alpha * raw + (1 - _alpha) * omega, with the previous omega
     //      on the right; _alpha is VELOCITY_ALPHA of the sketch (1 = no filtering, smaller = smoother but late);
     //   3. _theta_prev = theta, for the next step.
-    omega = 0.0f; // <- replace
+    float raw = (theta - _theta_prev)/dt; // finite difs over current control period
+    omega = _alpha * raw + (1 - _alpha)* omega; // Low Pass filter 1st order
+    _theta_prev = theta;
     return true;
 }
 
@@ -257,6 +257,9 @@ void Pendulum_lar::applyTorque(float torque_nm)
     //     friction_ff = tau_c * sign(omega), with tau_c = coulombFriction() (the model) and pendulum_sign(omega).
     //   - When it is off: friction_ff = 0.
     float friction_ff = 0.0f; // <- replace
+    if (_coulomb_comp){
+        friction_ff = coulombFriction() * pendulum_sign(omega);
+    }
 
     // TODO (Lab 2, Part 1): send the total torque to the motor.
     //   Look at FOC_lar::setTargetTorque(float torque_nm, float speed_rad_s) in FOC_lar.h and FOC_lar.cpp: it
@@ -264,8 +267,7 @@ void Pendulum_lar::applyTorque(float torque_nm)
     //   compensation Ke * speed, both set in setup()) and limits V to the voltage limit.
     //   Call it through the pointer _foc (_foc->setTargetTorque(...)) with the total torque, torque_nm +
     //   friction_ff, and the shaft speed omega. Replace the line below, which keeps the motor at 0 V.
-    _foc->setTargetVoltage(0.0f); // <- replace
-    (void)friction_ff;            // <- remove once you use friction_ff
+    _foc->setTargetTorque(torque_nm + friction_ff, omega); 
     _voltage_cmd = _foc->target_voltage;
     recordComputeTime();
 }

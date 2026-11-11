@@ -87,10 +87,10 @@ void PendulumModel::setParameters(float rod_mass,
     (void)viscous_friction;
     (void)coulomb_friction;
     (void)gravity;
-    _J = 0.459e-03f;  // <- replace
-    _G = 0.052974f;  // <- replace
-    _b = 1.3147e-05f;  // <- replace
-    _tc = 0.5263e-03f; // <- replace
+    _J = (rod_mass / 3.0f + point_mass) * length * length;  // <- replace
+    _G = (rod_mass / 2.0f + point_mass) * length * gravity; // <- replace
+    _b = viscous_friction;  // <- replace
+    _tc = coulomb_friction; // <- replace
 }
 
 float PendulumModel::inertia(void) const

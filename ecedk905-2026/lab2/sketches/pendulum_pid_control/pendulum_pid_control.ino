@@ -76,11 +76,11 @@
 
 // PID design (Part 1)
 
-#define PID_WN_HANGING NOT_SET         // rad/s  closed-loop natural frequency, hanging
-#define PID_WN_UPRIGHT NOT_SET         // rad/s  closed-loop natural frequency, upright
-#define PID_ZETA NOT_SET               // damping ratio
-#define PID_KI_OVER_KP_HANGING NOT_SET // ki = this * kp   (1/s); 0 = PD
-#define PID_KI_OVER_KP_UPRIGHT NOT_SET
+#define PID_WN_HANGING 25.0f       // rad/s  closed-loop natural frequency, hanging
+#define PID_WN_UPRIGHT 15.0f         // rad/s  closed-loop natural frequency, upright
+#define PID_ZETA 0.7f           // damping ratio
+#define PID_KI_OVER_KP_HANGING 1.0f // ki = this * kp   (1/s); 0 = PD
+#define PID_KI_OVER_KP_UPRIGHT 0.5f
 
 // Energy swing-up (Part 2)
 
@@ -155,6 +155,7 @@ struct Pid
     void reset()
     {
         // TODO: clear the controller's stored integral state.
+        integral=0.0f;
     }
 
     // error = reference - theta (rad), omega = measured velocity (rad/s).
@@ -164,13 +165,16 @@ struct Pid
         // TODO (Part 1): calculate the PID torque using the current error, stored integral and measured velocity.
         //   tau = kp*error + ki*integral - kd*omega
         //   Use measured omega for the derivative term (do not differentiate the error).
+        float tau = kp*error + ki*integral - kd*omega;
 
         // TODO (Part 1): integrate the error using the actual sample interval: integral += error * dt.
+        integral += error * dt;
+        
         // TODO (Part 2): add anti-windup: update the integral only when the calculated torque is not saturated
         //   (fabsf(tau) < limit). After integrating, if ki > 0, bound the integral so its torque contribution
         //   is at most half the available torque limit in either direction.
         // TODO (Part 2): clamp the calculated torque to +/- limit and return it.
-        return 0.0f;
+        return tau;
     }
 };
 
@@ -180,15 +184,53 @@ float swing_direction = 1.0f; // remembered push direction; initial direction is
 void designController(void)
 {
     // TODO (Part 1): obtain J, G and b from the pendulum model and select the settings for the chosen equilibrium.
+    float J = pendulum.inertia();
+    float G = pendulum.gravityTorque();
+    float b = pendulum.viscousFriction();
     //   Calculate kp and kd using the model and the PID design settings from the handout.
+    float wn;
+    float ki_over_kp;
+    float q; // Using q to indicate in which equilibria we are Hanging(θ =0) --> q = +G, upright(θ =π) q = -G
+    
     //   Calculate ki from the selected integral-to-proportional gain ratio.
     //   The hanging and upright gains differ in the sign of the gravity term. Do not allow negative gains.
     //   Store the gains in the PID structure, then print them with printGains() and compare with your hand result.
+    if (equilibrium ==1 ){
+        wn = PID_WN_HANGING;
+        ki_over_kp = PID_KI_OVER_KP_HANGING;
+        q = G;
+    }
+    else{
+        wn = PID_WN_UPRIGHT;
+        ki_over_kp = PID_KI_OVER_KP_UPRIGHT;
+        q = -G;
+    }
+
+    float Kp = J *wn*wn - q;
+    float Kd = 2.0f * PID_ZETA* wn * J - b;
+
+    // No negative gains!
+    if (Kp <0.0f){
+        Kp =0.0f;
+    }
+    
+    if (Kd <0.0f){
+        Kd = 0.0f;
+    }
+
+    //Calculating the integral gain as a fraction of Kp
+    float Ki = ki_over_kp * Kp;
+
+    pid.kp = Kp;
+    pid.ki = Ki;
+    pid.kd = Kd;
+    printGains(pid.kp, pid.ki, pid.kd);
 }
 
 void clearControllerState(void)
 {
     // TODO (Part 1): reset the PID controller's stored state.
+    pid.reset();
     // TODO (Part 2): reset the remembered swing-up push direction to +1.
 }
 
@@ -209,11 +251,18 @@ float controlTorque(void)
 {
     // TODO (Part 1): get the maximum available torque from the pendulum model.
     //
+    float tau_max = pendulum.maxTorque();
+
     // HANGING (selected equilibrium 1):
     //   - Always use the PID, with reference angle 0.
     //   - Calculate reference - measured angle and wrap the error to [-pi, pi) with pendulum_wrap_angle().
     //   - Call the PID update with the error, measured velocity, actual sample interval and torque limit.
     //
+    if (equilibrium ==1){
+        float error = pendulum_wrap_angle(0.0f - pendulum.theta);
+        return pid.update(error, pendulum.omega, pendulum.dt, tau_max);
+    }
+
     // UPRIGHT (selected equilibrium 2):
     //   - Save the current mode BEFORE calling pendulum.updateMode(), then call it.
     //   - If the resulting mode is BALANCE, use the PID with reference angle pi and a wrapped error.
@@ -223,6 +272,21 @@ float controlTorque(void)
     //
     // In Part 1, updateMode() in the library is still a stub that always returns BALANCE. In Part 2, your
     //   library implementation makes the SWING_UP branch active.
+
+    // Reading the mode Before update so we are able to detect a switch.
+    Pendulum_lar::Mode previous_mode = pendulum.mode();
+    Pendulum_lar::Mode mode = pendulum.updateMode();
+
+    if (mode == Pendulum_lar::BALANCE){
+
+        // Defensive stance if we switched from SWING UP to BALANCE 
+        if (previous_mode == Pendulum_lar:: SWING_UP){
+            pid.reset();
+        }
+        float error = pendulum_wrap_angle(PENDULUM_LAR_PI - pendulum.theta);
+        return pid.update(error, pendulum.omega, pendulum.dt, tau_max);
+    }
+    
     return 0.0f;
 }
 
@@ -291,14 +355,46 @@ void setup()
     // TODO (Part 1): initialize the motor and pendulum in this order (use the settings above):
     //   1. Call foc.begin() with the supply voltage, voltage limit, alignment voltage, stored electrical zero
     //      and sensor direction. If it returns false, stop here with while (1).
+    if (!foc.begin(MOTOR_SUPPLY_VOLTAGE, MOTOR_VOLTAGE_LIMIT, SENSOR_ALIGN_VOLTAGE,
+                   STORED_ZERO_ELECTRIC_ANGLE, STORED_SENSOR_DIRECTION))
+    {
+        Serial.println(F("#ERROR: motor start-up failed"));
+        while (1)
+        {
+        }
+    }
+
     //   2. Call foc.setTorqueConstant() with the calibrated torque constant. Call foc.setBackEmfConstant()
     //      with the measured back-EMF constant when compensation is enabled, otherwise with zero.
+    foc.setTorqueConstant(TORQUE_CONSTANT);
+    if (USE_BACK_EMF_COMP)
+    {
+        foc.setBackEmfConstant(MOTOR_KE);
+    }
+    else
+    {
+        foc.setBackEmfConstant(0.0f);
+    }
+
     //   3. Call pendulum.begin() with the motor, control period, velocity-filter coefficient and run time.
+    pendulum.begin(foc, CONTROL_PERIOD_S, VELOCITY_ALPHA, RUN_TIME_S);
+
     //   4. Call pendulum.setParameters() with the rod mass, point mass, length, viscous friction and Coulomb
     //      friction. With back-EMF compensation disabled, add the electrical damping (torque constant times
     //      back-EMF constant) to the measured mechanical viscous friction; otherwise use the measured value.
+    float b = VISCOUS_FRICTION;
+    if (!USE_BACK_EMF_COMP)
+    {
+        b = VISCOUS_FRICTION + TORQUE_CONSTANT * MOTOR_KE;
+    }
+    pendulum.setParameters(ROD_MASS, POINT_MASS, PENDULUM_LENGTH, b, COULOMB_FRICTION);
+
     //   5. Call pendulum.setCoulombCompensation() and pendulum.setCaptureAngles() with the selected settings.
+    pendulum.setCoulombCompensation(USE_COULOMB_COMP);
+    pendulum.setCaptureAngles(CAPTURE_ANGLE, RELEASE_ANGLE);
+
     //   6. Call designController() to calculate the gains for the selected equilibrium.
+    designController();
 
     // Given: keep these print calls after model initialization; printModel() needs the model parameters.
     printModel();
@@ -309,12 +405,31 @@ void setup()
 void loop()
 {
     // TODO (Part 1): complete the real-time control loop. loop() runs thousands of times per second; never use delay().
+
+
     //   1. Call foc.update() on EVERY call to loop(), first; the FOC algorithm must keep running continuously.
+    foc.update();
+
     //   2. Call pendulum.update(). It reads 's', 'x' and 'p', handles run time and timing, and returns true once
     //      per control period while a run is active, with fresh angle, velocity and dt measurements.
+    bool new_sample = pendulum.update();
+
     //   3. Call handleCommands() immediately after pendulum.update(), so '1', '2', 'u' and 'h' are handled.
+    handleCommands();
+
     //   4. If pendulum.started() is true, clear the controller state.
+    if (pendulum.started())
+    {
+        clearControllerState();
+    }
     //   5. If there is no new control sample, return; do not calculate or apply a new torque.
+    if (!new_sample)
+    {
+        return;
+    }
     //   6. Calculate the torque with controlTorque(), apply it with pendulum.applyTorque(), and write the CSV
     //      sample with pendulum.log().
+    float tau = controlTorque();
+    pendulum.applyTorque(tau);
+    pendulum.log();
 }
