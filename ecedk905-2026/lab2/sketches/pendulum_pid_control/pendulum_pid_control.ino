@@ -84,9 +84,9 @@
 
 // Energy swing-up (Part 2)
 
-#define SWING_ENERGY_RATIO NOT_SET // target energy / energy at the top
-#define SWING_ENERGY_BAND NOT_SET  // energy error, as a fraction of E_up, over which the torque ramps to full
-#define SWING_KICK_SPEED NOT_SET   // below this |omega| (rad/s) the last push direction is kept
+#define SWING_ENERGY_RATIO 1.03f // target energy / energy at the top
+#define SWING_ENERGY_BAND 0.10f  // energy error, as a fraction of E_up, over which the torque ramps to full
+#define SWING_KICK_SPEED 0.30f   // below this |omega| (rad/s) the last push direction is kept
 
 // SimpleFOCMini v1.0 + Arduino UNO: pole pairs, IN1, IN2, IN3, EN
 FOC_lar foc(MOTOR_POLE_PAIRS, 11, 10, 9, 8);
@@ -167,14 +167,23 @@ struct Pid
         //   Use measured omega for the derivative term (do not differentiate the error).
         float tau = kp*error + ki*integral - kd*omega;
 
-        // TODO (Part 1): integrate the error using the actual sample interval: integral += error * dt.
-        integral += error * dt;
-        
+        // TODO (Part 1): integrate the error using the actual sample interval: integral += error * dt; 
         // TODO (Part 2): add anti-windup: update the integral only when the calculated torque is not saturated
         //   (fabsf(tau) < limit). After integrating, if ki > 0, bound the integral so its torque contribution
         //   is at most half the available torque limit in either direction.
         // TODO (Part 2): clamp the calculated torque to +/- limit and return it.
-        return tau;
+        if (fabsf(tau) < limit){
+            integral += error * dt; // Anti-windup integration
+
+            if (ki > 0.0f){
+                float integral_max = 0.5f * limit / ki;
+                integral = pendulum_clamp(integral, -integral_max, integral_max);
+
+            }
+            
+        }
+
+        return pendulum_clamp(tau, -limit, limit);
     }
 };
 
@@ -232,6 +241,7 @@ void clearControllerState(void)
     // TODO (Part 1): reset the PID controller's stored state.
     pid.reset();
     // TODO (Part 2): reset the remembered swing-up push direction to +1.
+    swing_direction =1.0f;
 }
 
 float swingUpTorque(float theta, float omega)
@@ -244,7 +254,21 @@ float swingUpTorque(float theta, float omega)
     //   Calculate the normalized energy error using the configured energy ratio and energy band.
     //   Clamp this coefficient to [-1, +1] with pendulum_clamp(), then multiply by the maximum torque and
     //   the remembered push direction. Return the resulting torque.
-    return 0.0f;
+    if (fabsf(omega) > SWING_KICK_SPEED){
+        swing_direction = pendulum_sign(omega);
+    }
+    
+    // Energy and Torque limits
+    float E = pendulum.energy(theta, omega);
+    float E_up = pendulum.energyUpright();
+    float tau_max = pendulum.maxTorque();
+
+    // Normalized energy error
+    float alpha = (SWING_ENERGY_RATIO - E / E_up) / SWING_ENERGY_BAND;
+    alpha = pendulum_clamp(alpha, -1.0f, 1.0f);
+
+    return alpha * tau_max * swing_direction;
+
 }
 
 float controlTorque(void)
@@ -287,6 +311,10 @@ float controlTorque(void)
         return pid.update(error, pendulum.omega, pendulum.dt, tau_max);
     }
     
+    if (use_swing_up)
+    {
+        return swingUpTorque(pendulum.theta, pendulum.omega);
+    }
     return 0.0f;
 }
 

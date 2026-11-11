@@ -144,9 +144,8 @@ float PendulumModel::energy(float theta, float omega) const
     //   - potential: the centres of mass rise as the pendulum turns. Their height above the hanging position,
     //     times weight, adds up to G*(1 - cos(theta)) (cosf()): 0 hanging, G at horizontal, 2*G upright.
     //   Check: at rest at the top E = energyUpright() = 2*G.
-    (void)theta;
-    (void)omega;
-    return 0.0f; // <- replace
+    
+    return 0.5f * _J * omega * omega + _G *(1.0f - cosf(theta)); // <- replace
 }
 
 float PendulumModel::energyUpright(void) const

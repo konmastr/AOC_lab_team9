@@ -294,7 +294,20 @@ Pendulum_lar::Mode Pendulum_lar::updateMode(void)
     //   4. Return _mode.
     //   _capture_angle and _release_angle are set by setCaptureAngles(); the start command resets _mode to SWING_UP.
     // Until you write it (Part 1), the balance controller is always in control:
-    _mode = BALANCE; // <- replace
+    float error = fabsf(pendulum_wrap_angle(theta - PENDULUM_LAR_PI));
+
+    if (_mode == SWING_UP){
+         if (error < _capture_angle && fabsf(omega) < PENDULUM_CAPTURE_SPEED){
+            _mode = BALANCE;
+        }
+    }
+
+    else{
+        if(error > _release_angle){
+            _mode = SWING_UP;
+        }
+    }
+
     return _mode;
 }
 
