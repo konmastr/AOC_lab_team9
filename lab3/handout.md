@@ -166,6 +166,32 @@ The LQR is designed on the linearization at one equilibrium. Far from it, $\sin\
 
 The upright LQR therefore needs the pendulum to arrive near the top, inside the capture region of `rig.updateMode()`. The sketch offers the two ways of Lab 2, selected by `USE_SWING_UP` (key `u`): your hand (`USE_SWING_UP 0`), or the energy swing-up of Lab 2 (`USE_SWING_UP 1`, given in the sketch as the `SwingUp` helper).
 
+### 1.8 Summary: From the pendulum model to LQR control
+
+```mermaid
+flowchart TB
+
+    subgraph TOP[" "]
+        direction LR
+        A["Nonlinear pendulum equations<br/><br/>$$\quad J\\ddot{\\theta}=\\tau-b\\dot{\\theta}-G\\sin(\\theta)$$"]
+        B["Continuous-time model<br/><br/>$$\quad \\dot{x}=A_c x+B_c u$$"]
+        C["Discrete-time model<br/><br/>$$\quad x_{k+1}=A_d x_k+B_d u_k$$"]
+
+        A -->|"Jacobian linearization"| B
+        B -->|"Exact ZOH discretization"| C
+    end
+
+    subgraph BOTTOM[" "]
+        direction LR
+        D["LQR gain<br/><br/>$$\quad K=\\begin{bmatrix}K_{\\varphi},\quad K_{\\omega}\\end{bmatrix}$$"]
+        E["Motor torque<br/><br/>$$\quad \\tau_k=-K_{\\varphi}e_k-K_{\\omega}\\omega_k$$"]
+
+        D -->|"Feedback every 10 ms"| E
+    end
+
+    TOP -->|"Riccati iteration"| BOTTOM
+```
+
 ## 2. The library and the sketch
 
 ### 2.1 Lab 3 TODOs of your `Pendulum_lar` library (Task 3.1)
