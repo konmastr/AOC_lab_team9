@@ -178,8 +178,8 @@ The Lab 2 library deliberately left the linearization and discretization functio
 | `PendulumModel.cpp` | `linearizeAt(theta, A, B)` | fill $A_c$, $B_c$ at any angle; check $\theta=0$ and $\theta=\pi$ | both equilibria |
 | `PendulumModel.cpp` | `discretizeAt(theta, Ts, Ad, Bd)` | the zero-order-hold series of 1.2, with `pendulum_mat_mul()` | `updateLqr()` |
 | `PendulumModel.cpp` | `discretizeUpright(Ts, Ad, Bd)` | `discretizeAt(PENDULUM_LAR_PI, …)` | `updateLqr()` |
-| `PendulumModel.cpp` | `acceleration(theta, omega, torque)` | solve the nonlinear model of 1.1 for $\ddot\theta$ | nonlinear model checks |
-| `PendulumModel.cpp` | `step(theta, omega, torque, dt)` | one classical Runge–Kutta 4 step, torque held | nonlinear model checks |
+| `PendulumModel.cpp` | `acceleration(theta, omega, torque)` | solve the nonlinear model of 1.1 for $\ddot\theta$ | nonlinear model checks (NOT REALLY NEEDED HERE) |
+| `PendulumModel.cpp` | `step(theta, omega, torque, dt)` | one classical Runge–Kutta 4 step, torque held | nonlinear model checks (NOT REALLY NEEDED HERE) |
 
 The step-by-step instructions are in the TODO comments. Checks: `linearizeAt(π)` must equal `linearizeUpright()`; `A[1][0]` is $-G/J$ at $\theta=0$ and $+G/J$ at $\theta=\pi$; `discretizeUpright()` must equal `discretizeAt(PENDULUM_LAR_PI, …)`.
 

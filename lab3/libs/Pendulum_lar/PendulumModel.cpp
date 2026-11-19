@@ -143,6 +143,7 @@ float PendulumModel::energyUpright(void) const
 
 float PendulumModel::acceleration(float theta, float omega, float torque) const
 {
+    // THIS FUNCTION IS NOT NEEDED FOR THE IMPLEMENTATION, IT EXISTS HERE JUST FOR COMPLETENESS
     // TODO (Lab 3 and later; not needed in Lab 2): the angular acceleration theta'' (rad/s^2) of the
     // nonlinear model, for the angle theta, the velocity omega and the motor torque `torque`.
     //   Solve the model equation at the top of this file for theta'': the motor torque minus the viscous
@@ -156,6 +157,7 @@ float PendulumModel::acceleration(float theta, float omega, float torque) const
 
 void PendulumModel::step(float &theta, float &omega, float torque, float dt) const
 {
+    // THIS FUNCTION IS NOT NEEDED FOR THE IMPLEMENTATION, IT EXISTS HERE JUST FOR COMPLETENESS
     // TODO (Lab 3 and later; not needed in Lab 2): advance the state (theta, omega) by one time step dt with
     // the classical 4th-order Runge-Kutta method, the torque held constant during the step. Needs
     // acceleration(). The state x = [theta, omega] obeys x' = f(x) = [omega, acceleration(theta, omega, torque)].
