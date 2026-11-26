@@ -268,7 +268,7 @@ def plot(data, save_fig=None, show=True, capture_angle=0.4,
          release_angle=1.0, capture_speed=8.0, title=None):
     """Plot time histories and a phase portrait centred on the upright position."""
     t, theta, omega, tau, volt, mode = data.T
-    phi = wrap(theta - np.pi)
+    phi = theta - np.pi
     balance = mode > 0.5
 
     fig = plt.figure(figsize=(13.5, 9.0), constrained_layout=True)
@@ -365,7 +365,7 @@ def plot(data, save_fig=None, show=True, capture_angle=0.4,
 
     ax_phase.axvline(0.0, color="0.3", lw=0.7, alpha=0.7)
     ax_phase.axhline(0.0, color="0.3", lw=0.7, alpha=0.7)
-    ax_phase.set_xlim(-np.pi, np.pi)
+    ax_phase.set_xlim(-2*np.pi, 0.0)
     ax_phase.set_xlabel(r"Wrapped upright error, $\phi=\mathrm{wrap}(\theta-\pi)$ (rad)")
     ax_phase.set_ylabel(r"Angular velocity, $\omega$ (rad/s)")
     ax_phase.set_title("Phase portrait near upright")

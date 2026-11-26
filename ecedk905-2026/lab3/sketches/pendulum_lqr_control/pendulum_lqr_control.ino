@@ -44,32 +44,32 @@
 #include <FOC_lar.h>
 #include <Pendulum_lar.h>
 
-#define EQUILIBRIUM 1  // initial equilibrium: 1 HANGING (stable), 2 UPRIGHT (switch at runtime)
+#define EQUILIBRIUM 2  // initial equilibrium: 1 HANGING (stable), 2 UPRIGHT (switch at runtime)
 #define USE_SWING_UP 1 // upright: 1 energy swing-up + LQR, 0 LQR only (lift by hand) (key 'u')
 
 // Motor definitions
 
 #define MOTOR_POLE_PAIRS 7
 #define MOTOR_SUPPLY_VOLTAGE 12.0f
-#define MOTOR_VOLTAGE_LIMIT 3.0f // limits the torque: max torque = TORQUE_CONSTANT * this
+#define MOTOR_VOLTAGE_LIMIT 1.0f // limits the torque: max torque = TORQUE_CONSTANT * this
 #define SENSOR_ALIGN_VOLTAGE 1.0f
 
-#define STORED_ZERO_ELECTRIC_ANGLE NOT_SET // paste the values printed by motor_AS5600
-#define STORED_SENSOR_DIRECTION Direction::UNKNOWN
+#define STORED_ZERO_ELECTRIC_ANGLE 4.65717// paste the values printed by motor_AS5600
+#define STORED_SENSOR_DIRECTION Direction::CW
 
 // Calibration results (Lab 1)
 
-#define TORQUE_CONSTANT NOT_SET // N*m/V    <- REPLACE
-#define MOTOR_KE NOT_SET        // V*s/rad  <- REPLACE (low-speed Ke)
-#define USE_BACK_EMF_COMP 1     // 1: the torque command includes the back-EMF compensation
+#define TORQUE_CONSTANT 0.009340  // N*m/V    <- REPLACE
+#define MOTOR_KE 0.02839          // V*s/rad  <- REPLACE (low-speed Ke)
+#define USE_BACK_EMF_COMP 1       // 1: the torque command includes the back-EMF compensation
 
 // Pendulum parameters (Lab 1)
 
-#define ROD_MASS NOT_SET         // kg   <- REPLACE
-#define POINT_MASS NOT_SET       // kg   <- REPLACE
-#define PENDULUM_LENGTH NOT_SET  // m    <- REPLACE
-#define VISCOUS_FRICTION NOT_SET // N*m*s/rad  <- REPLACE (ring-down)
-#define COULOMB_FRICTION NOT_SET // N*m, tau_c  <- REPLACE (ring-down)
+#define ROD_MASS 0.02          // kg   <- REPLACE
+#define POINT_MASS 0.05        // kg   <- REPLACE
+#define PENDULUM_LENGTH 0.09   // m    <- REPLACE
+#define VISCOUS_FRICTION 1.3147e-05 // N*m*s/rad  <- REPLACE (ring-down)
+#define COULOMB_FRICTION 0.5263e-03 // N*m, tau_c  <- REPLACE (ring-down)
 #define USE_COULOMB_COMP 1       // 1: add tau_c*sign(omega) to the torque (the LQR model has no Coulomb term)
 
 // Control
@@ -100,15 +100,60 @@ int myLqrGain(const float Ad[2][2], const float Bd[2], float q_angle, float q_sp
     {
         // TODO (Task 3.2): one iteration of the Riccati recursion (handout, section 1.3).
         //   T = P*Bd (2-vector),  S = r + Bd'*T (scalar),  L = Ad'*T (2-vector, = A'PB)
+        float T[2] = {
+            P[0][0] * Bd[0] + P[0][1] * Bd[1],
+            P[1][0] * Bd[0] + P[1][1] * Bd[1]
+        };
+
+        float S = r + Bd[0] * T[0] + Bd[1] * T[1];
+
+        float L[2] = {
+            Ad[0][0] * T[0] + Ad[1][0] * T[1],
+            Ad[0][1] * T[0] + Ad[1][1] * T[1]
+        };
         //   Pn = Q + Ad'*P*Ad - L*L'/S       (Q = diag(q_angle, q_speed))
+        float PA[2][2] = {
+            {P[0][0] * Ad[0][0] + P[0][1] * Ad[1][0], P[0][0] * Ad[0][1] + P[0][1] * Ad[1][1]},
+            {P[1][0] * Ad[0][0] + P[1][1] * Ad[1][0], P[1][0] * Ad[0][1] + P[1][1] * Ad[1][1]}
+        };
+
+        float AtPA[2][2] = {
+            {Ad[0][0] * PA[0][0] + Ad[1][0] * PA[1][0], Ad[0][0] * PA[0][1] + Ad[1][0] * PA[1][1]},
+            {Ad[0][1] * PA[0][0] + Ad[1][1] * PA[1][0], Ad[0][1] * PA[0][1] + Ad[1][1] * PA[1][1]}
+        };
+
+        float Pn[2][2] = {
+            {q_angle + AtPA[0][0] - (L[0] * L[0]) / S, AtPA[0][1] - (L[0] * L[1]) / S},
+            {AtPA[1][0] - (L[1] * L[0]) / S, q_speed + AtPA[1][1] - (L[1] * L[1]) / S}
+        };
         //   P <- Pn
         //   if the largest change of P is below 1e-6 * max(P[0][0], 1):
         //       recompute T and S with the final P, set K = (T'*Ad)/S  (K[0], K[1]) and return it
         // Remove the next line when you are done.
-        (void)Ad;
-        (void)Bd;
-        (void)r;
-        (void)K;
+        float max_diff = 0.0f;
+        for (int i = 0; i < 2; i++)
+        {
+            for (int j = 0; j < 2; j++)
+            {
+                float diff = fabsf(Pn[i][j] - P[i][j]);
+                if (diff > max_diff)
+                {
+                    max_diff = diff;
+                }
+                P[i][j] = Pn[i][j];
+            }
+        }
+
+        if (max_diff < 1e-6f * fmaxf(P[0][0], 1.0f))
+        {
+            T[0] = P[0][0] * Bd[0] + P[0][1] * Bd[1];
+            T[1] = P[1][0] * Bd[0] + P[1][1] * Bd[1];
+            S = r + Bd[0] * T[0] + Bd[1] * T[1];
+
+            K[0] = (T[0] * Ad[0][0] + T[1] * Ad[1][0]) / S;
+            K[1] = (T[0] * Ad[0][1] + T[1] * Ad[1][1]) / S;
+            return it;
+        }
     }
     return 0;
 }
@@ -157,6 +202,13 @@ struct SwingUp
 //      (the keys '1' and '2' change it at runtime).
 //   7. lqr_iterations: an int, the number of iterations of your Riccati solver (0 = it did not converge); start
 //      it at 0.
+FOC_lar foc(MOTOR_POLE_PAIRS, 11, 10, 9, 8);
+Pendulum_lar pendulum;
+SwingUp swing;
+float max_torque = 0.0f;
+float K[2] = {0.0f, 0.0f};
+int equilibrium = EQUILIBRIUM;
+int lqr_iterations = 0;
 bool use_swing_up = USE_SWING_UP; // upright: true = energy swing-up + LQR, false = LQR only (lift by hand)
 
 // Recomputes K for the selected equilibrium and prints the closed-loop check
@@ -172,12 +224,18 @@ void updateLqr(void)
     // Check in the print below: Ad[1][0] is positive at the top and negative at the bottom.
     float Ad[2][2] = {{0.0f, 0.0f}, {0.0f, 0.0f}}; // <- fill (the prints below use Ad and Bd)
     float Bd[2] = {0.0f, 0.0f};
-
+    if (equilibrium == 2)
+    {
+        pendulum.discretizeUpright(CONTROL_PERIOD_S, Ad, Bd);
+    }
+    else
+    {
+        pendulum.discretizeAt(0.0f, CONTROL_PERIOD_S, Ad, Bd);
+    }
     // TODO (Task 3.2b): the LQR gain. Call your myLqrGain(Ad, Bd, q_angle, q_speed, r, K) with the weights
     // LQR_Q_ANGLE, LQR_Q_SPEED and r_torque (above), so that it writes the gain into the global K, and store the
     // number of iterations it returns in lqr_iterations (0 = it did not converge: the sketch stops in setup()).
-    (void)r_torque;     // <- remove once you use r_torque
-    lqr_iterations = 0; // <- replace
+    lqr_iterations = myLqrGain(Ad, Bd, LQR_Q_ANGLE, LQR_Q_SPEED, r_torque, K);
     if (lqr_iterations == 0)
     {
         Serial.println(F("#ERROR: your Riccati iteration did not converge (or is not implemented)"));
@@ -214,7 +272,24 @@ void updateLqr(void)
     //        absolute value (fabsf(), fmaxf(), sqrtf());
     //      - disc < 0: a complex pair with the same magnitude, |lambda|^2 = det: take sqrtf(fabsf(det)).
     //   3. Store the largest magnitude in lambda: the print below reports "stable" when lambda < 1.
-    float lambda = NAN; // <- replace
+    float M00 = Ad[0][0] - Bd[0] * K[0];
+    float M01 = Ad[0][1] - Bd[0] * K[1];
+    float M10 = Ad[1][0] - Bd[1] * K[0];
+    float M11 = Ad[1][1] - Bd[1] * K[1];
+
+    float tr = M00 + M11;
+    float det = M00 * M11 - M01 * M10;
+    float disc = tr * tr - 4.0f * det;
+    float lambda;
+    if (disc >= 0.0f)
+    {
+        float s = sqrtf(disc);
+        lambda = fmaxf(fabsf(0.5f * (tr + s)), fabsf(0.5f * (tr - s)));
+    }
+    else
+    {
+        lambda = sqrtf(fabsf(det));
+    }
     Serial.print(F("#closed loop: max |eigenvalue| = "));
     Serial.print(lambda, 4);
     Serial.println(lambda < 1.0f ? F("  (stable)") : F("  (UNSTABLE!)"));
@@ -290,6 +365,21 @@ void setup()
     //   4. Its model: pendulum.setParameters(rod mass, point mass, length, b, tau_c). b is VISCOUS_FRICTION with the
     //      back-EMF compensation; without it the motor adds the electrical damping TORQUE_CONSTANT * MOTOR_KE.
     //   5. max_torque = the largest torque the motor can apply: foc.getMaxTorque() (= k * voltage limit).
+    if (!foc.begin(MOTOR_SUPPLY_VOLTAGE, MOTOR_VOLTAGE_LIMIT, SENSOR_ALIGN_VOLTAGE,
+                   STORED_ZERO_ELECTRIC_ANGLE, STORED_SENSOR_DIRECTION))
+    {
+        while (1);
+    }
+
+    foc.setTorqueConstant(TORQUE_CONSTANT);
+    foc.setBackEmfConstant(USE_BACK_EMF_COMP ? MOTOR_KE : 0.0f);
+
+    pendulum.begin(foc, CONTROL_PERIOD_S, VELOCITY_ALPHA, RUN_TIME_S);
+
+    float b_model = VISCOUS_FRICTION + (USE_BACK_EMF_COMP ? 0.0f : TORQUE_CONSTANT * MOTOR_KE);
+    pendulum.setParameters(ROD_MASS, POINT_MASS, PENDULUM_LENGTH, b_model, COULOMB_FRICTION);
+
+    max_torque = foc.getMaxTorque();
 
     // given: the model and the torque limit (needs your step 4 and 5)
     Serial.print(F("#G = "));
@@ -306,8 +396,17 @@ void setup()
     //   7. The swing-up helper: swing.begin(pendulum, max_torque).
     //   8. The LQR gain of the initial equilibrium: updateLqr().
     //   9. If your Riccati solver did not converge (lqr_iterations == 0), stop here with  while (1);
-
     // given: what the sketch prints at power-up
+    pendulum.setCoulombCompensation(USE_COULOMB_COMP != 0);
+    pendulum.setCaptureAngles(CAPTURE_ANGLE, RELEASE_ANGLE);
+    swing.begin(pendulum, max_torque);
+
+    updateLqr();
+    if (lqr_iterations == 0)
+    {
+        while (1);
+    }
+
     printState();
     printHelp();
 }
@@ -318,6 +417,8 @@ void loop()
     //   1. foc.update(): the FOC algorithm. It must run on EVERY call of loop(), first.
     //   2. bool control_tick = pendulum.update(): reads the keys 's', 'x', 'p', keeps the run time and the timing,
     //      and returns true once per control period (while a run is active) with a fresh pendulum.theta, pendulum.omega.
+    foc.update();
+    bool control_tick = pendulum.update();
     handleCommands(); // given: '1', '2', 'u', 'h'
     // TODO (Task 3.2d), continued:
     //   3. If a run has just started (pendulum.started()): swing.reset() and pendulum.resetMode(Pendulum_lar::SWING_UP).
@@ -330,4 +431,36 @@ void loop()
     //        Otherwise (BALANCE) e = theta - pi (PENDULUM_LAR_PI).
     //   6. The LQR law tau = -(K[0]*e + K[1]*omega), limited to +/- max_torque with pendulum_clamp(); apply it with
     //      pendulum.applyTorque() and log the sample with pendulum.log(1) (mode 1 = balance).
+    if (pendulum.started())
+    {
+        swing.reset();
+        pendulum.resetMode(Pendulum_lar::SWING_UP);
+    }
+
+    if (!control_tick)
+    {
+        return;
+    }
+
+    float e = 0.0f;
+    if (equilibrium == 1)
+    {
+        e = pendulum_wrap_angle(pendulum.theta);
+    }
+    else
+    {
+        if (pendulum.updateMode() == Pendulum_lar::SWING_UP)
+        {
+            float tau = use_swing_up ? swing.torque(pendulum.theta, pendulum.omega) : 0.0f;
+            pendulum.applyTorque(tau);
+            pendulum.log(0);
+            return;
+        }
+        e = pendulum_wrap_angle(pendulum.theta - PENDULUM_LAR_PI);
+    }
+
+    float tau = -(K[0] * e + K[1] * pendulum.omega);
+    tau = pendulum_clamp(tau, -max_torque, max_torque);
+    pendulum.applyTorque(tau);
+    pendulum.log(1);
 }

@@ -81,16 +81,10 @@ void PendulumModel::setParameters(float rod_mass,
     //        torque at any angle.
     //   _b, _tc : the viscous and the Coulomb friction coefficients, as given (viscous_friction, coulomb_friction).
     // The sketch prints J, G and sqrt(G/J) at power-up: compare them with your Section 2 calculations.
-    (void)rod_mass;
-    (void)point_mass;
-    (void)length;
-    (void)viscous_friction;
-    (void)coulomb_friction;
-    (void)gravity;
-    _J = (rod_mass / 3.0f + point_mass) * length * length;  // <- replace
-    _G = (rod_mass / 2.0f + point_mass) * length * gravity; // <- replace
-    _b = viscous_friction;  // <- replace
-    _tc = coulomb_friction; // <- replace
+    _J = (rod_mass / 3.0f + point_mass) * length * length;
+    _G = (rod_mass / 2.0f + point_mass) * length * gravity;
+    _b = viscous_friction;
+    _tc = coulomb_friction;
 }
 
 float PendulumModel::inertia(void) const
@@ -123,20 +117,6 @@ bool PendulumModel::canLiftDirectly(float max_torque) const
     return max_torque > _G;
 }
 
-float PendulumModel::acceleration(float theta, float omega, float torque) const
-{
-    // THIS FUNCTION IS NOT NEEDED FOR THE IMPLEMENTATION, IT EXISTS HERE JUST FOR COMPLETENESS
-    // TODO (Lab 3 and later; not needed in Lab 2): the angular acceleration theta'' (rad/s^2) of the
-    // nonlinear model, for the angle theta, the velocity omega and the motor torque `torque`.
-    //   Solve the model equation at the top of this file for theta'': the motor torque minus the viscous
-    //   friction torque (b*omega), minus the Coulomb friction torque (tau_c times the sign of omega:
-    //   pendulum_sign()), minus the gravity torque (G*sin(theta): use sinf()), all divided by J.
-    (void)theta;
-    (void)omega;
-    (void)torque;
-    return 0.0f; // <- replace
-}
-
 float PendulumModel::energy(float theta, float omega) const
 {
     // TODO (Lab 2, Part 2): the mechanical energy E (J), relative to the hanging rest position (E = 0 there).
@@ -145,13 +125,23 @@ float PendulumModel::energy(float theta, float omega) const
     //   - potential: the centres of mass rise as the pendulum turns. Their height above the hanging position,
     //     times weight, adds up to G*(1 - cos(theta)) (cosf()): 0 hanging, G at horizontal, 2*G upright.
     //   Check: at rest at the top E = energyUpright() = 2*G.
-    
-    return 0.5f * _J * omega * omega + _G *(1.0f - cosf(theta)); // <- replace
+    return 0.5f * _J * omega * omega + _G * (1.0f - cosf(theta));
 }
 
 float PendulumModel::energyUpright(void) const
 {
     return 2.0f * _G;
+}
+
+float PendulumModel::acceleration(float theta, float omega, float torque) const
+{
+    // THIS FUNCTION IS NOT NEEDED FOR THE IMPLEMENTATION, IT EXISTS HERE JUST FOR COMPLETENESS
+    // TODO (Lab 3 and later; not needed in Lab 2): the angular acceleration theta'' (rad/s^2) of the
+    // nonlinear model, for the angle theta, the velocity omega and the motor torque `torque`.
+    //   Solve the model equation at the top of this file for theta'': the motor torque minus the viscous
+    //   friction torque (b*omega), minus the Coulomb friction torque (tau_c times the sign of omega:
+    //   pendulum_sign()), minus the gravity torque (G*sin(theta): use sinf()), all divided by J.
+    return (torque - _b * omega - _tc * pendulum_sign(omega) - _G * sinf(theta)) / _J;
 }
 
 void PendulumModel::step(float &theta, float &omega, float torque, float dt) const
@@ -168,10 +158,20 @@ void PendulumModel::step(float &theta, float &omega, float torque, float dt) con
     //   Each k has an angle part (a velocity) and a velocity part (an acceleration): e.g. k1 = [omega,
     //   acceleration(theta, omega, torque)], k2 = [omega + dt/2*k1w, acceleration(theta + dt/2*k1t,
     //   omega + dt/2*k1w, torque)], ... Write the new values into theta and omega (they are references).
-    (void)theta;
-    (void)omega;
-    (void)torque;
-    (void)dt;
+    float k1t = omega;
+    float k1w = acceleration(theta, omega, torque);
+
+    float k2t = omega + 0.5f * dt * k1w;
+    float k2w = acceleration(theta + 0.5f * dt * k1t, omega + 0.5f * dt * k1w, torque);
+
+    float k3t = omega + 0.5f * dt * k2w;
+    float k3w = acceleration(theta + 0.5f * dt * k2t, omega + 0.5f * dt * k2w, torque);
+
+    float k4t = omega + dt * k3w;
+    float k4w = acceleration(theta + dt * k3t, omega + dt * k3w, torque);
+
+    theta += (dt / 6.0f) * (k1t + 2.0f * k2t + 2.0f * k3t + k4t);
+    omega += (dt / 6.0f) * (k1w + 2.0f * k2w + 2.0f * k3w + k4w);
     // <- write the step here (until then the state does not change)
 }
 
@@ -183,12 +183,12 @@ void PendulumModel::linearizeUpright(float A[2][2], float B[2]) const
     //       J * phi'' = tau - b * phi' + G * phi          (no Coulomb term: it is compensated, see the header)
     //   Row 0 of A, B: phi' = phi'         -> A[0][0], A[0][1], B[0]
     //   Row 1 of A, B: phi'' = ... / J     -> A[1][0] (coefficient of phi), A[1][1] (of phi'), B[1] (of tau)
-    A[0][0] = 0.0f; // <- replace the eight values
-    A[0][1] = 0.0f;
-    A[1][0] = 0.0f;
-    A[1][1] = 0.0f;
+    A[0][0] = 0.0f;
+    A[0][1] = 1.0f;
+    A[1][0] = _G / _J;
+    A[1][1] = -_b / _J;
     B[0] = 0.0f;
-    B[1] = 0.0f;
+    B[1] = 1.0f / _J;
 }
 
 void PendulumModel::linearizeAt(float theta, float A[2][2], float B[2]) const
@@ -200,13 +200,12 @@ void PendulumModel::linearizeAt(float theta, float A[2][2], float B[2]) const
     //       J * dtheta'' = dtau - b * domega - G * cos(theta) * dtheta
     //   Fill A and B as in linearizeUpright(). Check: at theta = pi (cos = -1) it must give the same A and B
     //   as linearizeUpright(); at theta = 0 (hanging) A[1][0] = -G/J (gravity pulls back).
-    (void)theta;
-    A[0][0] = 0.0f; // <- replace the eight values
-    A[0][1] = 0.0f;
-    A[1][0] = 0.0f;
-    A[1][1] = 0.0f;
+    A[0][0] = 0.0f;
+    A[0][1] = 1.0f;
+    A[1][0] = -(_G / _J) * cosf(theta);
+    A[1][1] = -_b / _J;
     B[0] = 0.0f;
-    B[1] = 0.0f;
+    B[1] = 1.0f / _J;
 }
 
 void PendulumModel::discretizeAt(float theta, float Ts, float Ad[2][2], float Bd[2]) const
@@ -222,25 +221,44 @@ void PendulumModel::discretizeAt(float theta, float Ts, float Ad[2][2], float Bd
     //   3. for k = 1, 2, ..., 14: term = term * M / k (use pendulum_mat_mul(term, M, term), then divide every
     //      element by k), Ad += term, Bd += Ts / (k + 1) * term * B.
     //      With |A Ts| < 1 (here about 0.1) 14 terms are far more than float precision needs.
-    (void)theta;
-    (void)Ts;
-    Ad[0][0] = 0.0f; // <- replace
+    float A[2][2], B[2];
+    linearizeAt(theta, A, B);
+
+    float M[2][2] = {
+        {A[0][0] * Ts, A[0][1] * Ts},
+        {A[1][0] * Ts, A[1][1] * Ts}
+    };
+
+    float term[2][2] = {{1.0f, 0.0f}, {0.0f, 1.0f}};
+    Ad[0][0] = 1.0f;
     Ad[0][1] = 0.0f;
     Ad[1][0] = 0.0f;
-    Ad[1][1] = 0.0f;
-    Bd[0] = 0.0f;
-    Bd[1] = 0.0f;
+    Ad[1][1] = 1.0f;
+
+    Bd[0] = Ts * B[0];
+    Bd[1] = Ts * B[1];
+
+    for (int k = 1; k <= 14; k++)
+    {
+        pendulum_mat_mul(term, M, term);
+        float inv_k = 1.0f / (float)k;
+        for (int i = 0; i < 2; i++)
+        {
+            for (int j = 0; j < 2; j++)
+            {
+                term[i][j] *= inv_k;
+                Ad[i][j] += term[i][j];
+            }
+        }
+        float scale = Ts / (float)(k + 1);
+        Bd[0] += scale * (term[0][0] * B[0] + term[0][1] * B[1]);
+        Bd[1] += scale * (term[1][0] * B[0] + term[1][1] * B[1]);
+    }
 }
 
 void PendulumModel::discretizeUpright(float Ts, float Ad[2][2], float Bd[2]) const
 {
     // TODO (Lab 3; not needed in Lab 2): the discrete-time model at the top, state [phi, phi'].
     //   It is the model of discretizeAt() at theta = pi (PENDULUM_LAR_PI): one line.
-    (void)Ts;
-    Ad[0][0] = 0.0f; // <- replace
-    Ad[0][1] = 0.0f;
-    Ad[1][0] = 0.0f;
-    Ad[1][1] = 0.0f;
-    Bd[0] = 0.0f;
-    Bd[1] = 0.0f;
+    discretizeAt(PENDULUM_LAR_PI, Ts, Ad, Bd);
 }
